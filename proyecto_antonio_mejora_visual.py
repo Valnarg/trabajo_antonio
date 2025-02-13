@@ -12,7 +12,7 @@ db_path = os.path.join(script_dir, 'inventario.db')
 conn = sqlite3.connect(db_path)
 cursor = conn.cursor()
 
-# Crear la tabla si no existe
+# Crear las tablas necesarias si no existen
 cursor.execute('''
 CREATE TABLE IF NOT EXISTS productos (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -22,9 +22,14 @@ CREATE TABLE IF NOT EXISTS productos (
     umbral_minimo INTEGER NOT NULL
 );
 ''')
+cursor.execute('''
+CREATE TABLE IF NOT EXISTS categorias (
+    nombre TEXT PRIMARY KEY
+);
+''')
 conn.commit()
 
-# Función para mostrar una alerta si el stock es bajo
+# Función para verificar el stock bajo
 def verificar_stock_bajo():
     cursor.execute("SELECT nombre, cantidad, umbral_minimo FROM productos WHERE cantidad < umbral_minimo")
     productos_bajos = cursor.fetchall()
@@ -108,28 +113,50 @@ def modificar_producto(categoria, listbox, entry_cantidad, entry_umbral):
     verificar_stock_bajo()
     messagebox.showinfo("Éxito", f"Producto '{item}' actualizado correctamente.")
 
-# Crear la ventana principal
-ventana = tk.Tk()
-ventana.title("Gestión de Inventario")
-ventana.geometry("600x600")
-ventana.configure(bg="#f2f2f2")
+# Función para crear una nueva categoría
+def crear_categoria(entry_categoria):
+    nueva_categoria = entry_categoria.get().strip().lower()
+    
+    if not nueva_categoria:
+        messagebox.showwarning("Advertencia", "El nombre de la categoría no puede estar vacío.")
+        return
+    
+    cursor.execute("SELECT * FROM categorias WHERE nombre = ?", (nueva_categoria,))
+    if cursor.fetchone():
+        messagebox.showwarning("Advertencia", f"La categoría '{nueva_categoria}' ya existe.")
+    else:
+        cursor.execute("INSERT INTO categorias (nombre) VALUES (?)", (nueva_categoria,))
+        conn.commit()
+        actualizar_combo_categorias()
+        crear_pestana_categoria(nueva_categoria)
+        messagebox.showinfo("Éxito", f"Categoría '{nueva_categoria}' creada correctamente.")
 
-# Aplicar un tema de estilo más moderno
-style = ttk.Style()
-style.theme_use("clam")
+# Función para eliminar una categoría
+def eliminar_categoria(combo_categorias):
+    categoria_a_eliminar = combo_categorias.get().strip().lower()
+    
+    if not categoria_a_eliminar:
+        messagebox.showwarning("Advertencia", "Seleccione una categoría para eliminar.")
+        return
+    
+    cursor.execute("DELETE FROM categorias WHERE nombre = ?", (categoria_a_eliminar,))
+    cursor.execute("DELETE FROM productos WHERE categoria = ?", (categoria_a_eliminar,))
+    conn.commit()
+    actualizar_combo_categorias()
+    eliminar_pestana_categoria(categoria_a_eliminar)
+    messagebox.showinfo("Éxito", f"Categoría '{categoria_a_eliminar}' eliminada correctamente.")
 
-# Crear el Notebook (Pestañas)
-notebook = ttk.Notebook(ventana)
-notebook.pack(pady=10, padx=10, expand=True)
+# Función para actualizar el ComboBox de categorías
+def actualizar_combo_categorias():
+    categorias = [categoria[0] for categoria in cursor.execute("SELECT nombre FROM categorias").fetchall()]
+    combo_categorias['values'] = categorias
+    if categorias:
+        combo_categorias.set(categorias[0])
 
-# Crear las pestañas
-categorias = ["Bebidas", "Comidas", "Varios"]
-pestañas = {}
-
-for categoria in categorias:
+# Función para crear la pestaña de una nueva categoría
+def crear_pestana_categoria(categoria):
     pestaña = ttk.Frame(notebook)
     notebook.add(pestaña, text=categoria)
-    pestañas[categoria] = pestaña
 
     ttk.Label(pestaña, text="Nombre:", font=("Arial", 12)).grid(row=0, column=0, padx=5, pady=5, sticky="w")
     entry_nombre = ttk.Entry(pestaña, font=("Arial", 12), width=20)
@@ -165,6 +192,51 @@ for categoria in categorias:
     tk.Button(pestaña, text="Modificar", command=lambda c=categoria, lb=listbox, ec=entry_cantidad, eu=entry_umbral:
               modificar_producto(c, lb, ec, eu),
               font=("Arial", 12, "bold"), bg="#FFC300", fg="black", padx=10, pady=5).grid(row=6, column=1, pady=5)
+
+# Función para eliminar una pestaña de categoría
+def eliminar_pestana_categoria(categoria):
+    for tab in notebook.tabs():
+        if notebook.tab(tab, "text") == categoria:
+            notebook.forget(tab)
+            break
+
+# Crear la ventana principal
+ventana = tk.Tk()
+ventana.title("Gestión de Inventario")
+ventana.geometry("600x600")
+ventana.configure(bg="#f2f2f2")
+
+# Centrado en la ventana
+ventana.columnconfigure(0, weight=1)
+ventana.rowconfigure(0, weight=1)
+
+# Frame para creación y eliminación de categorías
+frame_categoria = ttk.Frame(ventana)
+frame_categoria.pack(pady=10)
+
+ttk.Label(frame_categoria, text="Crear Nueva Categoría:", font=("Arial", 12)).pack(side=tk.LEFT, padx=5)
+entry_categoria = ttk.Entry(frame_categoria, font=("Arial", 12))
+entry_categoria.pack(side=tk.LEFT, padx=5)
+
+tk.Button(frame_categoria, text="Crear Categoría", command=lambda: crear_categoria(entry_categoria), font=("Arial", 12, "bold"), bg="#4CAF50", fg="white").pack(side=tk.LEFT, padx=5)
+
+ttk.Label(frame_categoria, text="Eliminar Categoría:", font=("Arial", 12)).pack(side=tk.LEFT, padx=10)
+
+# Cargar las categorías desde la base de datos
+categorias = [categoria[0] for categoria in cursor.execute("SELECT nombre FROM categorias").fetchall()]
+combo_categorias = ttk.Combobox(frame_categoria, values=categorias, font=("Arial", 12), width=20)
+combo_categorias.pack(side=tk.LEFT, padx=5)
+
+tk.Button(frame_categoria, text="Eliminar Categoría", command=lambda: eliminar_categoria(combo_categorias), font=("Arial", 12, "bold"), bg="#FF5733", fg="white").pack(side=tk.LEFT, padx=5)
+
+# Crear el Notebook (Pestañas)
+notebook = ttk.Notebook(ventana)
+notebook.pack(pady=10, padx=10, expand=True)
+
+# Crear las pestañas iniciales de las categorías existentes
+categorias_iniciales = [categoria[0] for categoria in cursor.execute("SELECT nombre FROM categorias").fetchall()]
+for categoria in categorias_iniciales:
+    crear_pestana_categoria(categoria)
 
 # Ejecutar la aplicación
 ventana.mainloop()
