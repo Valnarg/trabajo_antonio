@@ -15,20 +15,16 @@ conn = sqlite3.connect(db_path)
 cursor = conn.cursor()
 
 # Crear las tablas necesarias si no existen
-cursor.execute('''
-CREATE TABLE IF NOT EXISTS productos (
+cursor.execute('''CREATE TABLE IF NOT EXISTS productos (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     nombre TEXT NOT NULL,
     categoria TEXT NOT NULL,  
-    cantidad INTEGER NOT NULL,
-    umbral_minimo INTEGER NOT NULL
-);
-''')
-cursor.execute('''
-CREATE TABLE IF NOT EXISTS categorias (
+    cantidad REAL NOT NULL,  
+    umbral_minimo REAL NOT NULL  
+);''')
+cursor.execute('''CREATE TABLE IF NOT EXISTS categorias (
     nombre TEXT PRIMARY KEY
-);
-''')
+);''')
 conn.commit()
 
 cursor.execute('''CREATE TABLE IF NOT EXISTS usuarios (
@@ -37,19 +33,18 @@ cursor.execute('''CREATE TABLE IF NOT EXISTS usuarios (
 conn.commit()
 
 # LOG
-
-# Función para registrar en el log
 def registrar_log(usuario, accion, detalles):
+    # Obtener la fecha y hora actuales con el formato deseado
+    fecha_hora = datetime.now().strftime("%d-%m-%Y a las %H:%M")
+    
+    # Escribir en el archivo de log
     with open(log_path, "a") as log:
-        log.write(f"[{datetime.now()}] Usuario: {usuario} - {accion} - {detalles}\n")
+        log.write(f"{fecha_hora} El usuario {usuario} {accion}: {detalles}\n")
 
 # USUARIOS
-
-# Función para obtener usuario activo
 def obtener_usuario_activo():
     return combo_usuarios.get() if combo_usuarios.get() else "Desconocido"
 
-# Función para añadir usuarios
 def añadir_usuario(entry_usuario):
     usuario = entry_usuario.get().strip()
     if not usuario:
@@ -58,22 +53,22 @@ def añadir_usuario(entry_usuario):
     cursor.execute("INSERT OR IGNORE INTO usuarios (nombre) VALUES (?)", (usuario,))
     conn.commit()
     actualizar_combo_usuarios()
+    entry_usuario.delete(0, tk.END)  # Limpiar el campo después de añadir
     registrar_log(usuario, "Añadió usuario", usuario)
     messagebox.showinfo("Éxito", f"Usuario '{usuario}' añadido correctamente!")
 
-# Función para eliminar usuarios
-def eliminar_usuario():
-    usuario = combo_usuarios.get()
+def eliminar_usuario(entry_usuario):
+    usuario = entry_usuario.get().strip()
     if not usuario:
-        messagebox.showwarning("Advertencia", "Seleccione un usuario para eliminar.")
+        messagebox.showwarning("Advertencia", "Ingrese un nombre de usuario para eliminar.")
         return
     cursor.execute("DELETE FROM usuarios WHERE nombre = ?", (usuario,))
     conn.commit()
     actualizar_combo_usuarios()
+    entry_usuario.delete(0, tk.END)  # Limpiar el campo después de eliminar
     registrar_log(usuario, "Eliminó usuario", usuario)
     messagebox.showinfo("Éxito", f"Usuario '{usuario}' eliminado correctamente!")
 
-# Función para actualizar el ComboBox de usuarios
 def actualizar_combo_usuarios():
     usuarios = [usuario[0] for usuario in cursor.execute("SELECT nombre FROM usuarios").fetchall()]
     combo_usuarios["values"] = usuarios
@@ -83,16 +78,20 @@ def actualizar_combo_usuarios():
 # Crear la ventana principal
 ventana = tk.Tk()
 ventana.title("Gestión de Inventario")
-ventana.geometry("800x600")
+
+# Obtener el tamaño de la pantalla y ajustar la geometría de la ventana
+pantalla_ancho = ventana.winfo_screenwidth()
+pantalla_alto = ventana.winfo_screenheight()
+ventana.geometry(f"{int(pantalla_ancho * 0.8)}x{int(pantalla_alto * 0.8)}")
+
 ventana.configure(bg="#f2f2f2")
 
-# Centrado en la ventana
 ventana.columnconfigure(0, weight=1)
 ventana.rowconfigure(0, weight=1)
 
-## Frame de gestión de usuarios
+# Frame de gestión de usuarios
 frame_usuarios = ttk.Frame(ventana)
-frame_usuarios.pack(pady=10)
+frame_usuarios.pack(pady=10, fill=tk.BOTH, expand=True)
 
 # Widgets para la gestión de usuarios
 ttk.Label(frame_usuarios, text="Usuario activo:", font=("Arial", 12)).pack(side=tk.LEFT, padx=5)
@@ -104,7 +103,7 @@ entry_usuario = ttk.Entry(frame_usuarios, font=("Arial", 12))
 entry_usuario.pack(side=tk.LEFT, padx=5)
 
 tk.Button(frame_usuarios, text="Añadir Usuario", command=lambda: añadir_usuario(entry_usuario), font=("Arial", 12, "bold"), bg="#4CAF50", fg="white").pack(side=tk.LEFT, padx=5)
-tk.Button(frame_usuarios, text="Eliminar Usuario", command=eliminar_usuario, font=("Arial", 12, "bold"), bg="#FF5733", fg="white").pack(side=tk.LEFT, padx=5)
+tk.Button(frame_usuarios, text="Eliminar Usuario", command=lambda: eliminar_usuario(entry_usuario), font=("Arial", 12, "bold"), bg="#FF5733", fg="white").pack(side=tk.LEFT, padx=5)
 
 # Función para verificar el stock bajo
 def verificar_stock_bajo():
@@ -115,18 +114,23 @@ def verificar_stock_bajo():
         mensaje = "⚠️ Productos con stock bajo:\n\n"
         for nombre, cantidad, umbral in productos_bajos:
             mensaje += f"🔴 {nombre} - Cantidad: {cantidad}, Umbral: {umbral}\n"
-        messagebox.showwarning("¡Atención! Stock bajo", mensaje)
+        return mensaje
+    return None
 
-# Función para añadir un producto
-def añadir_producto(categoria, entry_nombre, entry_cantidad, entry_umbral):
+# Función para añadir un producto (con soporte para decimales)
+def añadir_producto(categoria, entry_nombre, entry_cantidad, entry_umbral, listbox):
     nombre = entry_nombre.get().strip().lower()
     
-    if not entry_cantidad.get().isdigit() or not entry_umbral.get().isdigit():
+    try:
+        cantidad = float(entry_cantidad.get())  # Convertir a float para permitir decimales
+        umbral_minimo = float(entry_umbral.get())  # Convertir a float para permitir decimales
+    except ValueError:
         messagebox.showwarning("Advertencia", "Ingrese números válidos en Cantidad y Umbral.")
         return
-    
-    cantidad = int(entry_cantidad.get())
-    umbral_minimo = int(entry_umbral.get())
+
+    if cantidad < 0 or umbral_minimo < 0:
+        messagebox.showwarning("Advertencia", "Cantidad y Umbral no pueden ser negativos.")
+        return
 
     cursor.execute('SELECT * FROM productos WHERE LOWER(nombre) = ? AND categoria = ?', (nombre, categoria))
     if cursor.fetchone():
@@ -135,8 +139,9 @@ def añadir_producto(categoria, entry_nombre, entry_cantidad, entry_umbral):
         cursor.execute('INSERT INTO productos (nombre, categoria, cantidad, umbral_minimo) VALUES (?, ?, ?, ?)', 
                        (nombre.capitalize(), categoria, cantidad, umbral_minimo))
         conn.commit()
-        verificar_stock_bajo()
-        messagebox.showinfo("Éxito", f"Producto '{nombre.capitalize()}' añadido correctamente!")
+        mostrar_productos(categoria, listbox)
+        usuario = obtener_usuario_activo()
+        registrar_log(usuario, "Añadió producto", f"'{nombre.capitalize()}' en categoría '{categoria}' con cantidad {cantidad} y umbral mínimo {umbral_minimo}")
 
 # Función para mostrar productos y marcar en rojo los de stock bajo
 def mostrar_productos(categoria, listbox):
@@ -165,29 +170,37 @@ def eliminar_producto(categoria, listbox):
     conn.commit()
     
     listbox.delete(seleccion[0])
+    usuario = obtener_usuario_activo()
+    registrar_log(usuario, "Eliminó producto", f"'{item}' de la categoría '{categoria}'")
     messagebox.showinfo("Éxito", f"Producto '{item}' eliminado correctamente.")
+    mostrar_productos(categoria, listbox)
 
-# Función para modificar cantidad y umbral
+# Función para modificar cantidad y umbral (con soporte para decimales)
 def modificar_producto(categoria, listbox, entry_cantidad, entry_umbral):
     seleccion = listbox.curselection()
     if not seleccion:
         messagebox.showwarning("Advertencia", "Seleccione un producto para modificar.")
         return
     
-    if not entry_cantidad.get().isdigit() or not entry_umbral.get().isdigit():
+    try:
+        nueva_cantidad = float(entry_cantidad.get())  # Convertir a float para permitir decimales
+        nuevo_umbral = float(entry_umbral.get())  # Convertir a float para permitir decimales
+    except ValueError:
         messagebox.showwarning("Advertencia", "Ingrese números válidos.")
         return
 
-    item = listbox.get(seleccion[0]).split(" -")[0]  
-    nueva_cantidad = int(entry_cantidad.get())
-    nuevo_umbral = int(entry_umbral.get())
+    if nueva_cantidad < 0 or nuevo_umbral < 0:
+        messagebox.showwarning("Advertencia", "Cantidad y Umbral no pueden ser negativos.")
+        return
 
+    item = listbox.get(seleccion[0]).split(" -")[0]  
     cursor.execute("UPDATE productos SET cantidad = ?, umbral_minimo = ? WHERE nombre = ? AND categoria = ?",
                    (nueva_cantidad, nuevo_umbral, item, categoria))
     conn.commit()
     
     mostrar_productos(categoria, listbox)
-    verificar_stock_bajo()
+    usuario = obtener_usuario_activo()
+    registrar_log(usuario, "Modificó producto", f"'{item}' en categoría '{categoria}' con nueva cantidad {nueva_cantidad} y umbral mínimo {nuevo_umbral}")
     messagebox.showinfo("Éxito", f"Producto '{item}' actualizado correctamente.")
 
 # Función para crear una nueva categoría
@@ -206,6 +219,7 @@ def crear_categoria(entry_categoria):
         conn.commit()
         actualizar_combo_categorias()
         crear_pestana_categoria(nueva_categoria)
+        registrar_log(obtener_usuario_activo(), "Creó categoría", nueva_categoria)
         messagebox.showinfo("Éxito", f"Categoría '{nueva_categoria}' creada correctamente.")
 
 # Función para eliminar una categoría
@@ -216,100 +230,112 @@ def eliminar_categoria(combo_categorias):
         messagebox.showwarning("Advertencia", "Seleccione una categoría para eliminar.")
         return
     
-    cursor.execute("DELETE FROM categorias WHERE nombre = ?", (categoria_a_eliminar,))
+    # Eliminar los productos asociados a la categoría
     cursor.execute("DELETE FROM productos WHERE categoria = ?", (categoria_a_eliminar,))
     conn.commit()
+    
+    # Eliminar la categoría de la base de datos
+    cursor.execute("DELETE FROM categorias WHERE nombre = ?", (categoria_a_eliminar,))
+    conn.commit()
+    
+    # Eliminar la pestaña correspondiente
+    for tab in notebook.tabs():
+        if notebook.tab(tab, "text").lower() == categoria_a_eliminar:
+            notebook.forget(tab)
+            break
+    
     actualizar_combo_categorias()
-    eliminar_pestana_categoria(categoria_a_eliminar)
+    usuario = obtener_usuario_activo()
+    registrar_log(usuario, "Eliminó categoría", categoria_a_eliminar)
     messagebox.showinfo("Éxito", f"Categoría '{categoria_a_eliminar}' eliminada correctamente.")
 
-# Función para actualizar el ComboBox de categorías
+# Función para actualizar el combo de categorías
 def actualizar_combo_categorias():
     categorias = [categoria[0] for categoria in cursor.execute("SELECT nombre FROM categorias").fetchall()]
-    combo_categorias['values'] = categorias
+    combo_categorias["values"] = categorias
     if categorias:
         combo_categorias.set(categorias[0])
+
+# Crear el widget Notebook para las pestañas de categorías
+notebook = ttk.Notebook(ventana)
+notebook.pack(pady=10, expand=True, fill=tk.BOTH)
+
+# Frame para crear nueva categoría
+frame_nueva_categoria = ttk.Frame(ventana)
+frame_nueva_categoria.pack(pady=10, fill=tk.BOTH, expand=True)
+
+entry_categoria = ttk.Entry(frame_nueva_categoria, font=("Arial", 12))
+entry_categoria.pack(side=tk.LEFT, padx=5)
+
+combo_categorias = ttk.Combobox(frame_nueva_categoria, font=("Arial", 12), width=20)
+combo_categorias.pack(side=tk.LEFT, padx=5)
+
+tk.Button(frame_nueva_categoria, text="Crear Categoría", command=lambda: crear_categoria(entry_categoria), font=("Arial", 12, "bold"), bg="#4CAF50", fg="white").pack(side=tk.LEFT, padx=5)
+tk.Button(frame_nueva_categoria, text="Eliminar Categoría", command=lambda: eliminar_categoria(combo_categorias), font=("Arial", 12, "bold"), bg="#FF5733", fg="white").pack(side=tk.LEFT, padx=5)
 
 # Función para crear la pestaña de una nueva categoría
 def crear_pestana_categoria(categoria):
     pestaña = ttk.Frame(notebook)
     notebook.add(pestaña, text=categoria)
 
-    ttk.Label(pestaña, text="Nombre:", font=("Arial", 12)).grid(row=0, column=0, padx=5, pady=5, sticky="w")
-    entry_nombre = ttk.Entry(pestaña, font=("Arial", 12), width=20)
-    entry_nombre.grid(row=0, column=1, padx=5, pady=5)
+    frame_productos = ttk.Frame(pestaña)
+    frame_productos.pack(pady=10, fill=tk.BOTH, expand=True)
+    
+    listbox = tk.Listbox(frame_productos, width=50, height=15, font=("Arial", 12))
+    listbox.pack(side=tk.LEFT, padx=10, fill=tk.BOTH, expand=True)
+    
+    frame_formulario = ttk.Frame(frame_productos)
+    frame_formulario.pack(side=tk.LEFT, padx=10, fill=tk.Y, expand=True)
+    
+    tk.Label(frame_formulario, text="Nombre:", font=("Arial", 12)).pack(pady=5)
+    entry_nombre = ttk.Entry(frame_formulario, font=("Arial", 12))
+    entry_nombre.pack(pady=5)
 
-    ttk.Label(pestaña, text="Cantidad:", font=("Arial", 12)).grid(row=1, column=0, padx=5, pady=5, sticky="w")
-    entry_cantidad = ttk.Entry(pestaña, font=("Arial", 12), width=10)
-    entry_cantidad.grid(row=1, column=1, padx=5, pady=5)
+    tk.Label(frame_formulario, text="Cantidad:", font=("Arial", 12)).pack(pady=5)
+    entry_cantidad = ttk.Entry(frame_formulario, font=("Arial", 12))
+    entry_cantidad.pack(pady=5)
 
-    ttk.Label(pestaña, text="Umbral Mínimo:", font=("Arial", 12)).grid(row=2, column=0, padx=5, pady=5, sticky="w")
-    entry_umbral = ttk.Entry(pestaña, font=("Arial", 12), width=10)
-    entry_umbral.grid(row=2, column=1, padx=5, pady=5)
+    tk.Label(frame_formulario, text="Umbral Mínimo:", font=("Arial", 12)).pack(pady=5)
+    entry_umbral = ttk.Entry(frame_formulario, font=("Arial", 12))
+    entry_umbral.pack(pady=5)
+    
+    tk.Button(frame_formulario, text="Añadir Producto", 
+               command=lambda: añadir_producto(categoria, entry_nombre, entry_cantidad, entry_umbral, listbox), 
+               font=("Arial", 12, "bold"), bg="#4CAF50", fg="white").pack(pady=5)
+    
+    tk.Button(frame_formulario, text="Eliminar Producto", 
+               command=lambda: eliminar_producto(categoria, listbox), 
+               font=("Arial", 12, "bold"), bg="#FF5733", fg="white").pack(pady=5)
+    
+    tk.Button(frame_formulario, text="Modificar Producto", 
+               command=lambda: modificar_producto(categoria, listbox, entry_cantidad, entry_umbral), 
+               font=("Arial", 12, "bold"), bg="#FFD700", fg="white").pack(pady=5)
 
-    # Botón para añadir productos
-    tk.Button(pestaña, text=f"Añadir {categoria}",
-              command=lambda c=categoria, en=entry_nombre, ec=entry_cantidad, eu=entry_umbral:
-              añadir_producto(c, en, ec, eu),
-              font=("Arial", 12, "bold"), bg="#4CAF50", fg="white", padx=10, pady=5).grid(row=3, column=0, columnspan=2, pady=5)
+    mostrar_productos(categoria, listbox)
 
-    # Listbox para mostrar productos
-    listbox = tk.Listbox(pestaña, font=("Arial", 12), width=45, height=6)
-    listbox.grid(row=4, column=0, columnspan=2, pady=5)
+# Función para cargar las categorías y productos al iniciar
+def cargar_categorias_y_productos():
+    categorias = [categoria[0] for categoria in cursor.execute("SELECT nombre FROM categorias").fetchall()]
+    
+    # Crear pestañas para cada categoría
+    for categoria in categorias:
+        crear_pestana_categoria(categoria)
 
-    # Botón para mostrar productos
-    tk.Button(pestaña, text=f"Mostrar {categoria}",
-              command=lambda c=categoria, lb=listbox: mostrar_productos(c, lb),
-              font=("Arial", 12, "bold"), bg="#008CBA", fg="white", padx=10, pady=5).grid(row=5, column=0, columnspan=2, pady=5)
+    # Mostrar el mensaje de stock bajo al inicio del programa
+    mensaje_stock_bajo = verificar_stock_bajo()
+    if mensaje_stock_bajo:
+        messagebox.showwarning("¡Atención! Stock bajo", mensaje_stock_bajo)
 
-    # Botones de eliminar y modificar
-    tk.Button(pestaña, text="Eliminar", command=lambda c=categoria, lb=listbox: eliminar_producto(c, lb),
-              font=("Arial", 12, "bold"), bg="#FF5733", fg="white", padx=10, pady=5).grid(row=6, column=0, pady=5)
+# Función para manejar el cierre del programa
+def on_closing():
+    # Mostrar el mensaje de stock bajo al finalizar el programa
+    mensaje_stock_bajo = verificar_stock_bajo()
+    if mensaje_stock_bajo:
+        messagebox.showwarning("¡Atención! Stock bajo", mensaje_stock_bajo)
+    
+    ventana.destroy()
 
-    tk.Button(pestaña, text="Modificar", command=lambda c=categoria, lb=listbox, ec=entry_cantidad, eu=entry_umbral:
-              modificar_producto(c, lb, ec, eu),
-              font=("Arial", 12, "bold"), bg="#FFC300", fg="black", padx=10, pady=5).grid(row=6, column=1, pady=5)
-
-# Función para eliminar una pestaña de categoría
-def eliminar_pestana_categoria(categoria):
-    for tab in notebook.tabs():
-        if notebook.tab(tab, "text") == categoria:
-            notebook.forget(tab)
-            break
-
-
-
-# Centrado en la ventana
-ventana.columnconfigure(0, weight=1)
-ventana.rowconfigure(0, weight=1)
-
-# Frame para creación y eliminación de categorías
-frame_categoria = ttk.Frame(ventana)
-frame_categoria.pack(pady=10)
-
-ttk.Label(frame_categoria, text="Crear Nueva Categoría:", font=("Arial", 12)).pack(side=tk.LEFT, padx=5)
-entry_categoria = ttk.Entry(frame_categoria, font=("Arial", 12))
-entry_categoria.pack(side=tk.LEFT, padx=5)
-
-tk.Button(frame_categoria, text="Crear Categoría", command=lambda: crear_categoria(entry_categoria), font=("Arial", 12, "bold"), bg="#4CAF50", fg="white").pack(side=tk.LEFT, padx=5)
-
-ttk.Label(frame_categoria, text="Eliminar Categoría:", font=("Arial", 12)).pack(side=tk.LEFT, padx=10)
-
-# Cargar las categorías desde la base de datos
-categorias = [categoria[0] for categoria in cursor.execute("SELECT nombre FROM categorias").fetchall()]
-combo_categorias = ttk.Combobox(frame_categoria, values=categorias, font=("Arial", 12), width=20)
-combo_categorias.pack(side=tk.LEFT, padx=5)
-
-tk.Button(frame_categoria, text="Eliminar Categoría", command=lambda: eliminar_categoria(combo_categorias), font=("Arial", 12, "bold"), bg="#FF5733", fg="white").pack(side=tk.LEFT, padx=5)
-
-# Crear el Notebook (Pestañas)
-notebook = ttk.Notebook(ventana)
-notebook.pack(pady=10, padx=10, expand=True)
-
-# Crear las pestañas iniciales de las categorías existentes
-categorias_iniciales = [categoria[0] for categoria in cursor.execute("SELECT nombre FROM categorias").fetchall()]
-for categoria in categorias_iniciales:
-    crear_pestana_categoria(categoria)
-
-# Ejecutar la aplicación
+# Iniciar la interfaz
+cargar_categorias_y_productos()
+ventana.protocol("WM_DELETE_WINDOW", on_closing)
 ventana.mainloop()
