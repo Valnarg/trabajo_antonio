@@ -27,6 +27,17 @@ else:
     log_path = os.path.join(script_dir, 'log.txt')
     db_path = os.path.join(script_dir, 'inventario.db')
 
+# Ruta para la carpeta 'Inventario Diario'
+carpeta_inventarios = os.path.join(script_dir, "Inventario Diario")
+
+# Verificar si la carpeta ya existe antes de crearla
+if not os.path.exists(carpeta_inventarios):
+    os.makedirs(carpeta_inventarios)
+    print(f"Carpeta '{carpeta_inventarios}' creada.")  # Solo para depuración
+fecha_actual = datetime.now().strftime("%d-%m-%Y")
+# Ruta para el archivo de inventario dentro de la carpeta 'Inventario Diario'
+nombre_archivo = os.path.join(carpeta_inventarios, f"{fecha_actual} Inventario.txt")
+
 
 # Función para copiar los archivos necesarios desde el paquete empaquetado al directorio de ejecución
 def copiar_archivos():
@@ -62,7 +73,7 @@ if not os.path.exists(db_path):
 
     conn.commit()
 
-# LOG
+## LOG + inventario diario
 
 # Crear el archivo de log si no existe
 def crear_log():
@@ -78,6 +89,58 @@ def registrar_log(usuario, accion, detalles):
     # Escribir en el archivo de log
     with open(log_path, "a") as log:
         log.write(f"{fecha_hora} El usuario {usuario} {accion}: {detalles}\n")
+
+
+# Función para generar el archivo de inventario
+def generar_inventario():
+    print("Generando inventario...")  # Para depurar
+
+    # Obtener la fecha actual para usarla en el nombre del archivo
+    fecha_actual = datetime.now().strftime("%d-%m-%Y")
+    
+    # Ruta de la carpeta "Inventario Diario"
+    carpeta_inventarios = os.path.join(script_dir, "Inventario Diario")
+    
+    # Crear la carpeta si no existe
+    if not os.path.exists(carpeta_inventarios):
+        os.makedirs(carpeta_inventarios)
+        print(f"Carpeta '{carpeta_inventarios}' creada.")  # Para depurar
+    
+    # Ruta completa del archivo dentro de la carpeta
+    nombre_archivo = os.path.join(carpeta_inventarios, f"{fecha_actual} Inventario.txt")
+    
+    # Verificar si el archivo ya existe (en ese caso, se sobrescribe)
+    if os.path.exists(nombre_archivo):
+        print(f"El archivo {nombre_archivo} ya existe. Se eliminará.")  # Para depurar
+        os.remove(nombre_archivo)  # Eliminar el archivo viejo si existe
+
+    # Conectar a la base de datos
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+
+    # Consultar las categorías, nombres de productos y cantidades
+    query = """
+    SELECT categoria, nombre, cantidad FROM productos
+    """
+    cursor.execute(query)
+
+    # Obtener todos los resultados
+    inventario = cursor.fetchall()
+
+    # Crear y escribir en el archivo de texto
+    with open(nombre_archivo, 'w') as file:
+        file.write("Inventario del día " + fecha_actual + "\n")
+        file.write("=" * 40 + "\n")
+        
+        # Escribir los datos de cada producto
+        for categoria, nombre_producto, cantidad in inventario:
+            file.write(f"{categoria}: {nombre_producto} - {cantidad} unidades\n")
+
+    # Cerrar la conexión a la base de datos
+    conn.close()
+
+    print(f"Inventario generado en el archivo {nombre_archivo}")  # Para depurar
+
 
 # USUARIOS
 def obtener_usuario_activo():
@@ -563,6 +626,7 @@ def cargar_categorias_y_productos():
 
 # Función para manejar el cierre del programa
 def on_closing():
+    generar_inventario()
     # Mostrar el mensaje de stock bajo al finalizar el programa
     mensaje_stock_bajo = verificar_stock_bajo()
     if mensaje_stock_bajo:
